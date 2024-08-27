@@ -41,11 +41,6 @@
         a:hover {
             text-decoration: underline;
         }
-        .example {
-            background: #e9ecef;
-            padding: 10px;
-            border-left: 4px solid #007bff;
-        }
     </style>
 </head>
 <body>
@@ -74,12 +69,12 @@ cd go-httpserver</code></pre>
 
         <h2>Configuration</h2>
         <p>The server reads its configuration from a file named <code>config.conf</code> in the same directory. The configuration file should have the following format:</p>
-        <pre><code>ip-address=0.0.0.0
-port=8080
-root=./public
-index=index.html;home.html
-404-error=404.html
-403-error=403.html</code></pre>
+        <pre><code>ip-address = 0.0.0.0
+port = 8080
+root = ./public
+index = index.html;index.htm
+404-error = 404.html
+403-error = 403.html</code></pre>
         <ul>
             <li><strong>ip-address</strong>: The IP address to bind the server to. Can be an IPv4 or IPv6 address.</li>
             <li><strong>port</strong>: The port number on which the server listens.</li>
@@ -90,9 +85,9 @@ index=index.html;home.html
         </ul>
 
         <h2>Usage</h2>
-        <p>To start the server, run the compiled binary:</p>
         <pre><code>./web</code></pre>
-        <p>The server will listen on the address and port specified in the configuration file. It will serve files from the <code>root</code> directory and use the specified <code>index</code> files for directory requests.</p>
+        <p>Start the server: Run the compiled binary. The server will listen on the address and port specified in the configuration file.</p>
+        <p>Handle requests: The server will serve files from the root directory and use the specified index files for directory requests.</p>
 
         <h2>Logging</h2>
         <p>The server logs request details including client IP, port, requested file, and the amount of data sent. Logs are written to both the console and a file named <code>latest.log</code>.</p>
@@ -102,22 +97,16 @@ index=index.html;home.html
 
         <h2>Example</h2>
         <p>Here's a simple configuration example:</p>
-        <pre><code>ip-address=0.0.0.0
-port=8081
-root=./website/
-index=index.html;index.htm
-404-error=404.html
-403-error=403.html</code></pre>
+        <pre><code>ip-address = 0.0.0.0
+port = 8081
+root = ./public
+index = index.html;index.htm
+404-error = 404.html
+403-error = 403.html</code></pre>
         <p>In this example, the server will bind to the IPv4 localhost address (<code>0.0.0.0</code>) and listen on port <code>8081</code>.</p>
 
         <h2>Contribution</h2>
         <p>Feel free to contribute to this project by submitting issues or pull requests. Your feedback and contributions are highly appreciated!</p>
-
-        <h2>License</h2>
-        <p>This project is licensed under the MIT License. See the <a href="LICENSE" target="_blank">LICENSE</a> file for details.</p>
-
-        <hr>
-        <p>Thank you for using the Simple HTTP Server! If you have any questions or need further assistance, please feel free to reach out.</p>
     </div>
 </body>
 </html>
