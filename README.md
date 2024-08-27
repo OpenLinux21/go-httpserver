@@ -30,8 +30,8 @@ The server reads its configuration from a file named config.conf in the same dir
 
    ```ini
 ip-address = 0.0.0.0
-port = 8080
-root = ./public
+port = 8081
+root = ./website/
 index = index.html;index.htm
 404-error = 404.html
 403-error = 403.html
@@ -66,7 +66,7 @@ To shut down the server, simply send a Ctrl+C signal. The server will gracefully
    ```ini
 ip-address = 0.0.0.0
 port = 8081
-root = ./public
+root = ./website/
 index = index.html:index.htm
 404-error = 404.html
 403-error = 403.html
