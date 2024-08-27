@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple HTTP Server</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            width: 80%;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .example {
+            background: #e9ecef;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Simple HTTP Server</h1>
+        <p>Welcome to the <strong>Simple HTTP Server</strong> project! This is a straightforward HTTP server written in Go, designed for simplicity and efficiency. It provides a reliable foundation for serving static files and handling HTTP requests.</p>
+
+        <h2>Features</h2>
+        <ul>
+            <li><strong>Static File Serving</strong>: Serve HTML, CSS, JavaScript, and other static files.</li>
+            <li><strong>Customizable Configuration</strong>: Easily configure server settings through a simple configuration file.</li>
+            <li><strong>IPv4 and IPv6 Support</strong>: Bind to both IPv4 and IPv6 addresses.</li>
+            <li><strong>Logging</strong>: Detailed logging of requests with timestamps and client IPs.</li>
+            <li><strong>Graceful Shutdown</strong>: Ensures all ongoing requests are handled before shutting down.</li>
+        </ul>
+
+        <h2>Installation</h2>
+        <p>To get started, you'll need to have Go installed on your machine. You can download Go from <a href="https://golang.org/dl/" target="_blank">the official Go website</a>.</p>
+        <ol>
+            <li><strong>Clone the repository:</strong></li>
+            <pre><code>git clone https://github.com/OpenLinux21/go-httpserver.git
+cd go-httpserver</code></pre>
+            <li><strong>Build the server:</strong></li>
+            <pre><code>go build -o web web.go</code></pre>
+        </ol>
+
+        <h2>Configuration</h2>
+        <p>The server reads its configuration from a file named <code>config.conf</code> in the same directory. The configuration file should have the following format:</p>
+        <pre><code>ip-address=0.0.0.0
+port=8080
+root=./public
+index=index.html;home.html
+404-error=404.html
+403-error=403.html</code></pre>
+        <ul>
+            <li><strong>ip-address</strong>: The IP address to bind the server to. Can be an IPv4 or IPv6 address.</li>
+            <li><strong>port</strong>: The port number on which the server listens.</li>
+            <li><strong>root</strong>: The root directory where static files are served from.</li>
+            <li><strong>index</strong>: A semicolon-separated list of index files to use when a directory is requested.</li>
+            <li><strong>404-error</strong>: The file to serve when a requested file is not found.</li>
+            <li><strong>403-error</strong>: The file to serve when access to a file is forbidden.</li>
+        </ul>
+
+        <h2>Usage</h2>
+        <p>To start the server, run the compiled binary:</p>
+        <pre><code>./web</code></pre>
+        <p>The server will listen on the address and port specified in the configuration file. It will serve files from the <code>root</code> directory and use the specified <code>index</code> files for directory requests.</p>
+
+        <h2>Logging</h2>
+        <p>The server logs request details including client IP, port, requested file, and the amount of data sent. Logs are written to both the console and a file named <code>latest.log</code>.</p>
+
+        <h2>Graceful Shutdown</h2>
+        <p>To shut down the server, simply send a <code>Ctrl+C</code> signal. The server will gracefully shut down, ensuring all ongoing requests are completed.</p>
+
+        <h2>Example</h2>
+        <p>Here's a simple configuration example:</p>
+        <pre><code>ip-address=0.0.0.0
+port=8081
+root=./website/
+index=index.html;index.htm
+404-error=404.html
+403-error=403.html</code></pre>
+        <p>In this example, the server will bind to the IPv4 localhost address (<code>0.0.0.0</code>) and listen on port <code>8081</code>.</p>
+
+        <h2>Contribution</h2>
+        <p>Feel free to contribute to this project by submitting issues or pull requests. Your feedback and contributions are highly appreciated!</p>
+
+        <h2>License</h2>
+        <p>This project is licensed under the MIT License. See the <a href="LICENSE" target="_blank">LICENSE</a> file for details.</p>
+
+        <hr>
+        <p>Thank you for using the Simple HTTP Server! If you have any questions or need further assistance, please feel free to reach out.</p>
+    </div>
+</body>
+</html>
