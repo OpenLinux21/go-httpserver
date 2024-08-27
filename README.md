@@ -35,6 +35,7 @@ root=./public
 index=index.html;home.html
 404-error=404.html
 403-error=403.html
+```
 
 ip-address: The IP address to bind the server to. Can be an IPv4 or IPv6 address.
 port: The port number on which the server listens.
@@ -48,6 +49,7 @@ index: A semicolon-separated list of index files to use when a directory is requ
 
    ```bash
 ./web
+```
 
 Start the server: Run the compiled binary. The server will listen on the address and port specified in the configuration file.
 Handle requests: The server will serve files from the root directory and use the specified index files for directory requests.
@@ -69,6 +71,7 @@ root=./public
 index=index.html
 404-error=404.html
 403-error=403.html
+```
 
 In this example, the server will bind to the IPv4 localhost address (0.0.0.0) and listen on port 8081.
 
