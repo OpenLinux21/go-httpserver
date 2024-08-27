@@ -47,10 +47,9 @@ index: A semicolon-separated list of index files to use when a directory is requ
 
 3. **Usage**
 
-   ```bash
+```bash
 ./web
-``
-
+```
 Start the server: Run the compiled binary. The server will listen on the address and port specified in the configuration file.
 Handle requests: The server will serve files from the root directory and use the specified index files for directory requests.
 
