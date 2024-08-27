@@ -21,13 +21,14 @@ To get started, you'll need to have Go installed on your machine. You can downlo
    cd go-httpserver
 2. **Build the server:**
 
-```bash
+   ```bash
    go build -o web web.go
 
 ## Configuration
 
 The server reads its configuration from a file named config.conf in the same directory. The configuration file should have the following format:
-```ini
+
+   ```ini
 ip-address=0.0.0.0
 port=8080
 root=./public
@@ -43,9 +44,9 @@ index: A semicolon-separated list of index files to use when a directory is requ
 403-error: The file to serve when access to a file is forbidden.
 
 
-## Usage
+3. **Usage**
 
-```bash
+   ```bash
 ./web
 
 Start the server: Run the compiled binary. The server will listen on the address and port specified in the configuration file.
@@ -61,8 +62,7 @@ To shut down the server, simply send a Ctrl+C signal. The server will gracefully
 
 ## Example
 
-```ini
-
+   ```ini
 ip-address=0.0.0.0
 port=8081
 root=./public
