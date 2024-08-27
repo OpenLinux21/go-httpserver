@@ -29,12 +29,12 @@ To get started, you'll need to have Go installed on your machine. You can downlo
 The server reads its configuration from a file named config.conf in the same directory. The configuration file should have the following format:
 
    ```ini
-ip-address=0.0.0.0
-port=8080
-root=./public
-index=index.html;home.html
-404-error=404.html
-403-error=403.html
+ip-address = 0.0.0.0
+port = 8080
+root = ./public
+index = index.html;index.htm
+404-error = 404.html
+403-error = 403.html
 ```
 
 ip-address: The IP address to bind the server to. Can be an IPv4 or IPv6 address.
@@ -64,12 +64,12 @@ To shut down the server, simply send a Ctrl+C signal. The server will gracefully
 ## Example
 
    ```ini
-ip-address=0.0.0.0
-port=8081
-root=./public
-index=index.html
-404-error=404.html
-403-error=403.html
+ip-address = 0.0.0.0
+port = 8081
+root = ./public
+index = index.html:index.htm
+404-error = 404.html
+403-error = 403.html
 ```
 
 In this example, the server will bind to the IPv4 localhost address (0.0.0.0) and listen on port 8081.
