@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -136,14 +137,17 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		// Construct the link
+		// URL-encode the file or directory name to handle special characters like '#'
+		encodedName := url.PathEscape(name)
+
+		// Construct the link using the encoded name
 		link := r.URL.Path
 		if !strings.HasSuffix(link, "/") {
 			link += "/"
 		}
-		link += name
+		link += encodedName
 
-		// Append a slash to the name and link if it's a directory
+		// Append a slash to the display name and link if it's a directory
 		displayName := name
 		if entry.IsDir() {
 			displayName += "/"
@@ -174,8 +178,12 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Handle the request
-	filePath := r.URL.Path
+	// Decode the URL path to handle special characters (like '#' encoded as %23)
+	filePath, err := url.PathUnescape(r.URL.Path)
+	if err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
 	fullPath := rootDirectory + filePath
 
 	// If the request is for the root directory, try to find the index file defined in the configuration
