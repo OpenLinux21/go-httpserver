@@ -22,7 +22,8 @@ To get started, you'll need to have Go installed on your machine. You can downlo
 2. **Build the server:**
 
    ```bash
-   go build -o web web.go
+   go mod init web && go mod tidy
+   go build -o web_server
 
 ## Configuration
 
@@ -48,7 +49,7 @@ index: A semicolon-separated list of index files to use when a directory is requ
 3. **Usage**
 
 ```bash
-./web
+./web_server
 ```
 Start the server: Run the compiled binary. The server will listen on the address and port specified in the configuration file.
 Handle requests: The server will serve files from the root directory and use the specified index files for directory requests.
