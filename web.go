@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 const randomStringCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -29,25 +31,25 @@ var (
 )
 
 func loadConfig() {
-	// Read the configuration file
+	// 读取配置文件
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Fatalf("Error reading configuration file: %v", err)
+		log.Fatalf("读取配置文件错误: %v", err)
 	}
 
-	// Parse the configuration content
+	// 解析配置内容
 	lines := strings.Split(string(content), "\n")
 	for lineNumber, line := range lines {
-		line = strings.TrimSpace(line) // Trim leading and trailing whitespace
+		line = strings.TrimSpace(line)
 
-		// Skip empty lines and comment lines
+		// 跳过空行和注释行
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
-			log.Fatalf("Invalid configuration line (line %d): %s", lineNumber+1, line)
+			log.Fatalf("配置行格式错误（第 %d 行）: %s", lineNumber+1, line)
 		}
 
 		key := strings.TrimSpace(parts[0])
@@ -67,13 +69,13 @@ func loadConfig() {
 		case "403-error":
 			forbiddenPage = value
 		default:
-			log.Printf("Warning: Unknown configuration item (line %d): %s", lineNumber+1, line)
+			log.Printf("警告: 未知配置项（第 %d 行）: %s", lineNumber+1, line)
 		}
 	}
 }
 
 func generateRandomString(length int) string {
-	// Generate a random string of the specified length
+	// 生成指定长度的随机字符串
 	rand.Seed(time.Now().UnixNano())
 	randomBytes := make([]byte, length)
 	for i := range randomBytes {
@@ -83,32 +85,31 @@ func generateRandomString(length int) string {
 }
 
 func logRequestDetails(r *http.Request, filePath string, bytesSent int64) {
-	// Log request details, including a random string
+	// 按原格式记录日志至 latest.log 文件中
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 	requestTime := time.Now().Format("2006-01-02 15:04:05")
 	randomString := generateRandomString(16)
 	logDetails := fmt.Sprintf("%s | ClientIP: %s | Port: %s | File: %s | Time: %s | BytesSent: %d\n",
 		randomString, clientIP, port, filePath, requestTime, bytesSent)
 
-	// Print to console
-	fmt.Print(logDetails)
-
-	// Write to log file
+	// 写入日志文件（格式保持不变）
 	logFile, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		log.Printf("Error opening log file: %v", err)
+		log.Printf("打开日志文件错误: %v", err)
 		return
 	}
 	defer logFile.Close()
 
-	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
-	log.Print(logDetails)
+	_, err = io.WriteString(logFile, logDetails)
+	if err != nil {
+		log.Printf("写入日志文件错误: %v", err)
+	}
 }
 
 func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 	entries, err := os.ReadDir(directoryPath)
 	if err != nil {
-		http.Error(w, "Unable to list directory", http.StatusInternalServerError)
+		http.Error(w, "无法列出目录", http.StatusInternalServerError)
 		return
 	}
 
@@ -125,7 +126,7 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 	fmt.Fprintf(w, "<table>")
 	fmt.Fprintf(w, "<tr><th>Name</th><th>Last Modified</th><th>Size</th></tr>")
 
-	// If not in the root directory, add a link to the parent directory
+	// 若不在根目录，添加返回上级目录链接
 	if r.URL.Path != "/" {
 		parent := ".."
 		fmt.Fprintf(w, `<tr>
@@ -137,24 +138,24 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		// URL-encode the file or directory name to handle special characters like '#'
+		// 对文件或目录名称进行 URL 编码以处理特殊字符（如 '#'）
 		encodedName := url.PathEscape(name)
 
-		// Construct the link using the encoded name
+		// 构造链接
 		link := r.URL.Path
 		if !strings.HasSuffix(link, "/") {
 			link += "/"
 		}
 		link += encodedName
 
-		// Append a slash to the display name and link if it's a directory
+		// 目录在显示名称和链接后加斜杠
 		displayName := name
 		if entry.IsDir() {
 			displayName += "/"
 			link += "/"
 		}
 
-		// Get file info to display last modified time and size
+		// 获取文件信息以显示最后修改时间和大小
 		info, err := entry.Info()
 		modTime := ""
 		size := ""
@@ -178,15 +179,15 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Decode the URL path to handle special characters (like '#' encoded as %23)
+	// 解码 URL 路径，处理特殊字符（例如 '#' 编码为 %23）
 	filePath, err := url.PathUnescape(r.URL.Path)
 	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		http.Error(w, "错误的请求", http.StatusBadRequest)
 		return
 	}
 	fullPath := rootDirectory + filePath
 
-	// If the request is for the root directory, try to find the index file defined in the configuration
+	// 若请求根目录，则尝试查找配置中的索引文件
 	if filePath == "/" {
 		for _, indexFile := range indexFiles {
 			indexFullPath := filepath.Join(rootDirectory, indexFile)
@@ -198,23 +199,23 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Ensure the path starts with "/"
+	// 确保路径以 "/" 开头
 	if !strings.HasPrefix(filePath, "/") {
 		filePath = "/" + filePath
 		fullPath = rootDirectory + filePath
 	}
 
-	// Check if the file or directory exists
+	// 检查文件或目录是否存在
 	fileInfo, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
-		// Return the 404 page if the file does not exist
+		// 文件不存在时返回 404 页面
 		http.ServeFile(w, r, filepath.Join(rootDirectory, notFoundPage))
 		return
 	}
 
-	// If the request is for a directory
+	// 如果请求为目录
 	if fileInfo.IsDir() {
-		// Try to find an index file in the directory
+		// 尝试在目录中查找索引文件
 		foundIndex := false
 		for _, indexFile := range indexFiles {
 			indexFullPath := filepath.Join(fullPath, indexFile)
@@ -224,23 +225,23 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		// If no index file is found, generate the autoindex page
+		// 若未找到索引文件，则生成自动索引页面
 		if !foundIndex {
 			autoIndex(w, r, fullPath)
 			return
 		}
 	}
 
-	// If the request is for a file, try to open and serve its content
+	// 请求为文件时，尝试打开并服务其内容
 	file, err := os.Open(fullPath)
 	if err != nil {
-		// Return the 403 page if the file cannot be opened
+		// 无法打开文件时返回 403 页面
 		http.ServeFile(w, r, filepath.Join(rootDirectory, forbiddenPage))
 		return
 	}
 	defer file.Close()
 
-	// Set the Content-Type based on the file extension
+	// 根据文件扩展名设置 Content-Type
 	switch {
 	case strings.HasSuffix(filePath, ".html"):
 		w.Header().Set("Content-Type", "text/html")
@@ -250,30 +251,37 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
 	}
 
-	// Use http.ServeContent to support multi-threaded downloads
+	// 使用 http.ServeContent 支持多线程下载
 	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
 
-	// Log the request
+	// 记录请求日志到文件（终端日志由 Gin 日志中间件输出）
 	bytesSent := fileInfo.Size()
 	logRequestDetails(r, filePath, bytesSent)
 }
 
 func main() {
-	loadConfig() // Load configuration
+	loadConfig() // 加载配置
 
-	// Set the request handler
-	http.HandleFunc("/", handleRequest)
+	// 构造 Gin 引擎并添加中间件
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery())
 
-	// Handle IPv6 addresses
+	// 所有请求交由 handleRequest 处理
+	router.Any("/*filepath", func(c *gin.Context) {
+		handleRequest(c.Writer, c.Request)
+	})
+
+	// 处理 IPv6 地址
 	addr := ipAddress
 	if strings.Contains(ipAddress, ":") {
-		addr = fmt.Sprintf("[%s]", ipAddress) // IPv6 addresses need to be enclosed in square brackets
+		addr = fmt.Sprintf("[%s]", ipAddress)
 	}
 	serverAddr := fmt.Sprintf("%s:%s", addr, port)
 
+	// 使用 http.Server 包装 Gin 引擎，便于优雅关闭
 	srv := &http.Server{
 		Addr:           serverAddr,
-		Handler:        nil, // Use http.DefaultServeMux
+		Handler:        router,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		IdleTimeout:    15 * time.Second,
@@ -284,26 +292,25 @@ func main() {
 	pid := os.Getpid()
 	fmt.Printf("PID: %d\n", pid)
 
+	// 启动服务器
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Error starting server: %v", err)
+			log.Fatalf("启动服务器错误: %v", err)
 		}
 	}()
 
-	// Capture Ctrl+C signal
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	// 捕获 Ctrl+C 信号
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
 
-	// Wait for signal
-	<-c
-
-	// Print green exit message
+	// 打印绿色退出提示
 	fmt.Print("\033[1;32mServer exiting...\033[0m\n")
 
-	// Gracefully shut down the server
+	// 优雅关闭服务器
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Error shutting down server: %v", err)
+		log.Fatalf("关闭服务器错误: %v", err)
 	}
 }
