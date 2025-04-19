@@ -64,13 +64,15 @@
             <pre><code>git clone https://github.com/OpenLinux21/go-httpserver.git
 cd go-httpserver</code></pre>
             <li><strong>Build the server:</strong></li>
-            <pre><code>go build -o web web.go</code></pre>
+            <pre><code>go mod init web</code></pre>
+<pre><code>go mod tidy</code></pre>
+            <pre><code>go build -o web_server</code></pre>
         </ol>
 
         <h2>Configuration</h2>
         <p>The server reads its configuration from a file named <code>config.conf</code> in the same directory. The configuration file should have the following format:</p>
         <pre><code>ip-address = 0.0.0.0
-port = 8080
+port = 8081
 root = ./website/
 index = index.html;index.htm
 404-error = 404.html
