@@ -9,6 +9,7 @@ Welcome to the **Simple HTTP Server** project! This is a straightforward HTTP se
 - **IPv4 and IPv6 Support**: Bind to both IPv4 and IPv6 addresses.
 - **Logging**: Detailed logging of requests with timestamps and client IPs.
 - **Graceful Shutdown**: Ensures all ongoing requests are handled before shutting down.
+- **HTTPS Support**: Optional HTTPS support with custom certificate and port configuration.
 
 ## Installation
 
@@ -19,34 +20,50 @@ To get started, you'll need to have Go installed on your machine. You can downlo
    ```bash
    git clone https://github.com/OpenLinux21/go-httpserver.git
    cd go-httpserver
+   ```
+
 2. **Build the server:**
 
    ```bash
    go mod init web && go mod tidy
    go build -o web_server
+   ```
 
 ## Configuration
 
 The server reads its configuration from a file named config.conf in the same directory. The configuration file should have the following format:
 
    ```ini
+# Basic Configuration
 ip-address = 0.0.0.0
 port = 8081
 root = ./website/
 index = index.html;index.htm
 404-error = 404.html
 403-error = 403.html
+
+# HTTPS Configuration
+enable-https = true
+cert-file = server.crt
+key-file = server.key
+https-port = 8443
 ```
 
-ip-address: The IP address to bind the server to. Can be an IPv4 or IPv6 address.
-port: The port number on which the server listens.
-root: The root directory where static files are served from.
-index: A semicolon-separated list of index files to use when a directory is requested.
-404-error: The file to serve when a requested file is not found.
-403-error: The file to serve when access to a file is forbidden.
+### Basic Configuration
+- `ip-address`: The IP address to bind the server to. Can be an IPv4 or IPv6 address.
+- `port`: The port number on which the HTTP server listens.
+- `root`: The root directory where static files are served from.
+- `index`: A semicolon-separated list of index files to use when a directory is requested.
+- `404-error`: The file to serve when a requested file is not found.
+- `403-error`: The file to serve when access to a file is forbidden.
 
+### HTTPS Configuration
+- `enable-https`: Enable or disable HTTPS support (true/false).
+- `cert-file`: Path to the SSL certificate file.
+- `key-file`: Path to the SSL private key file.
+- `https-port`: The port number on which the HTTPS server listens.
 
-3. **Usage**
+## Usage
 
 ```bash
 ./web_server
@@ -65,15 +82,36 @@ To shut down the server, simply send a Ctrl+C signal. The server will gracefully
 ## Example
 
    ```ini
+# Basic Configuration
 ip-address = 0.0.0.0
 port = 8081
 root = ./website/
-index = index.html:index.htm
+index = index.html;index.htm
 404-error = 404.html
 403-error = 403.html
+
+# HTTPS Configuration
+enable-https = true
+cert-file = server.crt
+key-file = server.key
+https-port = 8443
 ```
 
-In this example, the server will bind to the IPv4 localhost address (0.0.0.0) and listen on port 8081.
+In this example, the server will:
+- Bind to all IPv4 addresses (0.0.0.0)
+- Listen on port 8081 for HTTP connections
+- Listen on port 8443 for HTTPS connections
+- Use SSL certificate and key files from the current directory
+
+### Generating Self-Signed Certificate
+
+For testing HTTPS, you can generate a self-signed certificate using OpenSSL:
+
+```bash
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout server.key -out server.crt \
+    -subj "/C=CN/ST=State/L=City/O=Organization/CN=localhost"
+```
 
 ## Contribution
 

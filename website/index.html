@@ -55,6 +55,7 @@
             <li><strong>IPv4 and IPv6 Support</strong>: Bind to both IPv4 and IPv6 addresses.</li>
             <li><strong>Logging</strong>: Detailed logging of requests with timestamps and client IPs.</li>
             <li><strong>Graceful Shutdown</strong>: Ensures all ongoing requests are handled before shutting down.</li>
+            <li><strong>HTTPS Support</strong>: Optional HTTPS support with custom certificate and port configuration.</li>
         </ul>
 
         <h2>Installation</h2>
@@ -71,12 +72,21 @@ cd go-httpserver</code></pre>
 
         <h2>Configuration</h2>
         <p>The server reads its configuration from a file named <code>config.conf</code> in the same directory. The configuration file should have the following format:</p>
-        <pre><code>ip-address = 0.0.0.0
+        <pre><code># Basic Configuration
+ip-address = 0.0.0.0
 port = 8081
 root = ./website/
 index = index.html;index.htm
 404-error = 404.html
-403-error = 403.html</code></pre>
+403-error = 403.html
+
+# HTTPS Configuration
+enable-https = true
+cert-file = server.crt
+key-file = server.key
+https-port = 8443</code></pre>
+
+        <h3>Basic Configuration</h3>
         <ul>
             <li><strong>ip-address</strong>: The IP address to bind the server to. Can be an IPv4 or IPv6 address.</li>
             <li><strong>port</strong>: The port number on which the server listens.</li>
@@ -84,6 +94,14 @@ index = index.html;index.htm
             <li><strong>index</strong>: A semicolon-separated list of index files to use when a directory is requested.</li>
             <li><strong>404-error</strong>: The file to serve when a requested file is not found.</li>
             <li><strong>403-error</strong>: The file to serve when access to a file is forbidden.</li>
+        </ul>
+
+        <h3>HTTPS Configuration</h3>
+        <ul>
+            <li><strong>enable-https</strong>: Enable or disable HTTPS support (true/false).</li>
+            <li><strong>cert-file</strong>: Path to the SSL certificate file.</li>
+            <li><strong>key-file</strong>: Path to the SSL private key file.</li>
+            <li><strong>https-port</strong>: The port number on which the HTTPS server listens.</li>
         </ul>
 
         <h2>Usage</h2>
@@ -99,13 +117,32 @@ index = index.html;index.htm
 
         <h2>Example</h2>
         <p>Here's a simple configuration example:</p>
-        <pre><code>ip-address = 0.0.0.0
+        <pre><code># Basic Configuration
+ip-address = 0.0.0.0
 port = 8081
 root = ./website/
 index = index.html;index.htm
 404-error = 404.html
-403-error = 403.html</code></pre>
-        <p>In this example, the server will bind to the IPv4 localhost address (<code>0.0.0.0</code>) and listen on port <code>8081</code>.</p>
+403-error = 403.html
+
+# HTTPS Configuration
+enable-https = true
+cert-file = server.crt
+key-file = server.key
+https-port = 8443</code></pre>
+        <p>In this example, the server will:</p>
+        <ul>
+            <li>Bind to all IPv4 addresses (0.0.0.0)</li>
+            <li>Listen on port 8081 for HTTP connections</li>
+            <li>Listen on port 8443 for HTTPS connections</li>
+            <li>Use SSL certificate and key files from the current directory</li>
+        </ul>
+
+        <h3>Generating Self-Signed Certificate</h3>
+        <p>For testing HTTPS, you can generate a self-signed certificate using OpenSSL:</p>
+        <pre><code>openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout server.key -out server.crt \
+    -subj "/C=CN/ST=State/L=City/O=Organization/CN=localhost"</code></pre>
 
         <h2>Contribution</h2>
         <p>Feel free to contribute to this project by submitting issues or pull requests. Your feedback and contributions are highly appreciated!</p>
