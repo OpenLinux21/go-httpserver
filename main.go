@@ -28,6 +28,11 @@ var (
 	indexFiles    []string
 	notFoundPage  string
 	forbiddenPage string
+	// 添加 HTTPS 相关配置项
+	enableHTTPS bool
+	certFile    string
+	keyFile     string
+	httpsPort   string // 新增 HTTPS 端口配置
 )
 
 func loadConfig() {
@@ -68,6 +73,15 @@ func loadConfig() {
 			notFoundPage = value
 		case "403-error":
 			forbiddenPage = value
+		// 添加 HTTPS 配置项处理
+		case "enable-https":
+			enableHTTPS = strings.ToLower(value) == "true"
+		case "cert-file":
+			certFile = value
+		case "key-file":
+			keyFile = value
+		case "https-port": // 新增 HTTPS 端口配置处理
+			httpsPort = value
 		default:
 			log.Printf("Warning: Unknown config item (line %d): %s", lineNumber+1, line)
 		}
@@ -171,7 +185,20 @@ func autoIndex(w http.ResponseWriter, r *http.Request, directoryPath string) {
 	fmt.Fprintf(w, "</body></html>")
 }
 
+// 添加基本的安全头部
+func addSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("X-XSS-Protection", "1; mode=block")
+	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	// 修改 CSP 策略，允许内联样式
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'")
+}
+
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// 添加安全头部
+	addSecurityHeaders(w)
+
 	// Declare support for range requests
 	w.Header().Set("Accept-Ranges", "bytes")
 
@@ -275,6 +302,35 @@ func main() {
 			log.Fatalf("Server start error: %v", err)
 		}
 	}()
+
+	// 修改 HTTPS 支持逻辑
+	if enableHTTPS {
+		if certFile == "" || keyFile == "" {
+			log.Fatal("HTTPS is enabled but cert-file or key-file is not specified in config")
+		}
+
+		// 强制使用配置文件中指定的https端口
+		if httpsPort == "" {
+			log.Fatal("HTTPS is enabled but https-port is not specified in config")
+		}
+
+		go func() {
+			httpsAddr := fmt.Sprintf("%s:%s", addr, httpsPort)
+			httpsSrv := &http.Server{
+				Addr:           httpsAddr,
+				Handler:        router,
+				ReadTimeout:    10 * time.Second,
+				WriteTimeout:   10 * time.Second,
+				IdleTimeout:    15 * time.Second,
+				MaxHeaderBytes: 1 << 20,
+			}
+
+			fmt.Printf("HTTPS server running at https://%s\n", httpsAddr)
+			if err := httpsSrv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS server error: %v", err)
+			}
+		}()
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
