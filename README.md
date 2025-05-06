@@ -31,7 +31,7 @@ To get started, you'll need to have Go installed on your machine. You can downlo
 
 ## Configuration
 
-The server reads its configuration from a file named config.conf in the same directory. The configuration file should have the following format:
+The server reads its configuration from a file named config.conf in the same directory. Example configuration:
 
    ```ini
 # Basic Configuration
@@ -78,30 +78,6 @@ The server logs request details including client IP, port, requested file, and t
 ## Graceful Shutdown
 
 To shut down the server, simply send a Ctrl+C signal. The server will gracefully shut down, ensuring all ongoing requests are completed.
-
-## Example
-
-   ```ini
-# Basic Configuration
-ip-address = 0.0.0.0
-port = 8081
-root = ./website/
-index = index.html;index.htm
-404-error = 404.html
-403-error = 403.html
-
-# HTTPS Configuration
-enable-https = true
-cert-file = server.crt
-key-file = server.key
-https-port = 8443
-```
-
-In this example, the server will:
-- Bind to all IPv4 addresses (0.0.0.0)
-- Listen on port 8081 for HTTP connections
-- Listen on port 8443 for HTTPS connections
-- Use SSL certificate and key files from the current directory
 
 ### Generating Self-Signed Certificate
 
