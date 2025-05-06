@@ -21,6 +21,21 @@ import (
 
 const randomStringCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
+// Default configuration content
+const defaultConfig = `# Basic Configuration
+ip-address = 0.0.0.0
+port = 8081
+root = ./website
+index = index.html;index.htm
+404-error = 404.html
+403-error = 403.html
+
+# HTTPS Configuration
+enable-https = true
+cert-file = server.crt
+key-file = server.key
+https-port = 8443`
+
 var (
 	configPath    = "config.conf"
 	ipAddress     string
@@ -36,7 +51,33 @@ var (
 	httpsPort   string // Add HTTPS port configuration
 )
 
+// Create default config file if not exists
+func createDefaultConfig() error {
+	// Check if config file already exists
+	if _, err := os.Stat(configPath); err == nil {
+		return nil // File exists, do nothing
+	}
+
+	// Create website directory if not exists
+	if err := os.MkdirAll("website", 0755); err != nil {
+		return fmt.Errorf("failed to create website directory: %v", err)
+	}
+
+	// Write default config to file
+	if err := os.WriteFile(configPath, []byte(defaultConfig), 0644); err != nil {
+		return fmt.Errorf("failed to create default config file: %v", err)
+	}
+
+	fmt.Printf("Created default config file: %s\n", configPath)
+	return nil
+}
+
 func loadConfig() {
+	// Try to create default config if not exists
+	if err := createDefaultConfig(); err != nil {
+		log.Fatalf("Error creating default config: %v", err)
+	}
+
 	// Read config file
 	content, err := os.ReadFile(configPath)
 	if err != nil {
