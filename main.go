@@ -324,6 +324,12 @@ func shouldGzip(path string) bool {
 	return false
 }
 
+// Handle errors consistently
+func handleError(w http.ResponseWriter, err error, statusCode int, logMsg string) {
+	log.Printf("Error: %s - %v", logMsg, err)
+	http.Error(w, http.StatusText(statusCode), statusCode)
+}
+
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Add security headers
 	addSecurityHeaders(w)
@@ -345,7 +351,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Decode URL path, handle special characters
 	filePath, err := url.PathUnescape(r.URL.Path)
 	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		handleError(w, err, http.StatusBadRequest, "Bad request")
 		return
 	}
 	fullPath := rootDirectory + filePath
@@ -496,7 +502,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		buffer := make([]byte, 512)
 		_, err := file.Read(buffer)
 		if err != nil && err != io.EOF {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			handleError(w, err, http.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 		w.Header().Set("Content-Type", http.DetectContentType(buffer))

@@ -3,66 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple HTTP Server</title>
+    <title>Go HTTP Server</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             line-height: 1.6;
             margin: 0;
-            padding: 0;
-            background-color: #f4f4f4;
-        }
-        .container {
-            width: 80%;
-            margin: 0 auto;
             padding: 20px;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1, h2 {
+            background: #f5f5f5;
             color: #333;
         }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #eee;
+        }
+        .feature-card h3 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
         code {
-            background: #f4f4f4;
-            padding: 2px 5px;
+            background: #f8f9fa;
+            padding: 2px 6px;
             border-radius: 4px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         }
         pre {
-            background: #f4f4f4;
-            padding: 10px;
-            border-radius: 4px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
             overflow-x: auto;
         }
-        a {
-            color: #007bff;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
+        .highlight {
+            background: #e3f2fd;
+            padding: 2px 6px;
+            border-radius: 4px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Simple HTTP Server</h1>
+        <h1>Go HTTP Server</h1>
+        <p>A lightweight, high-performance HTTP/HTTPS server written in Go. This project provides a simple yet feature-complete web server that supports static file serving, directory listing, HTTPS, Gzip compression, and more.</p>
 
-        <h2>Features</h2>
-        <ul>
-            <li><strong>Static File Serving</strong>: Serve HTML, CSS, JavaScript, and other static files.</li>
-            <li><strong>Customizable Configuration</strong>: Easily configure server settings through a simple configuration file.</li>
-            <li><strong>IPv4 and IPv6 Support</strong>: Bind to both IPv4 and IPv6 addresses.</li>
-            <li><strong>Logging</strong>: Detailed logging of requests with timestamps and client IPs.</li>
-            <li><strong>Graceful Shutdown</strong>: Ensures all ongoing requests are handled before shutting down.</li>
-            <li><strong>HTTPS Support</strong>: Optional HTTPS support with custom certificate and port configuration.</li>
-        </ul>
+        <h2>Key Features</h2>
+        <div class="feature-list">
+            <div class="feature-card">
+                <h3>HTTP/HTTPS Support</h3>
+                <p>Supports both HTTP and HTTPS protocols, providing secure communication.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Gzip Compression</h3>
+                <p>Automatically compresses text files (HTML, CSS, JS, etc.) to improve transfer efficiency.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Security Features</h3>
+                <p>Custom security headers, HTTPS support, XSS protection, and Content Security Policy (CSP).</p>
+            </div>
+            <div class="feature-card">
+                <h3>Directory Listing</h3>
+                <p>Beautiful directory browsing interface with file preview and download support.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Custom Error Pages</h3>
+                <p>Support for 404, 403, and other error pages for better user experience.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Request Logging</h3>
+                <p>Detailed access logging for easy troubleshooting and performance analysis.</p>
+            </div>
+        </div>
 
-        <h2>Configuration</h2>
-        <p>The server reads its configuration from a file named <code>config.conf</code> in the same directory. Example configuration:</p>
+        <h2>Quick Start</h2>
+        <h3>Build</h3>
+        <pre><code>./build.sh</code></pre>
+        <p>This will create a statically linked binary named <code>web_server</code>.</p>
+
+        <h3>Configuration</h3>
+        <p>The server is configured through <code>config.conf</code>. Example configuration:</p>
         <pre><code># Basic Configuration
 ip-address = 0.0.0.0
 port = 8081
-root = ./website/
+root = ./website
 index = index.html;index.htm
 404-error = 404.html
 403-error = 403.html
@@ -73,35 +119,97 @@ cert-file = server.crt
 key-file = server.key
 https-port = 8443</code></pre>
 
-        <h3>Basic Configuration</h3>
-        <ul>
-            <li><strong>ip-address</strong>: The IP address to bind the server to. Can be an IPv4 or IPv6 address.</li>
-            <li><strong>port</strong>: The port number on which the HTTP server listens.</li>
-            <li><strong>root</strong>: The root directory where static files are served from.</li>
-            <li><strong>index</strong>: A semicolon-separated list of index files to use when a directory is requested.</li>
-            <li><strong>404-error</strong>: The file to serve when a requested file is not found.</li>
-            <li><strong>403-error</strong>: The file to serve when access to a file is forbidden.</li>
-        </ul>
+        <h3>Run</h3>
+        <pre><code>./web_server</code></pre>
+        <p>The server will listen on the configured ports (both HTTP and HTTPS if enabled).</p>
 
-        <h3>HTTPS Configuration</h3>
+        <h2>Performance Optimization</h2>
         <ul>
-            <li><strong>enable-https</strong>: Enable or disable HTTPS support (true/false).</li>
-            <li><strong>cert-file</strong>: Path to the SSL certificate file.</li>
-            <li><strong>key-file</strong>: Path to the SSL private key file.</li>
-            <li><strong>https-port</strong>: The port number on which the HTTPS server listens.</li>
+            <li>Gzip compression</li>
+            <li>Static file caching</li>
+            <li>Efficient file serving</li>
+            <li>Concurrent request handling</li>
         </ul>
 
         <h2>Logging</h2>
-        <p>The server logs request details including client IP, port, requested file, and the amount of data sent. Logs are written to both the console and a file named <code>latest.log</code>.</p>
+        <p>The server provides detailed access logs, including:</p>
+        <ul>
+            <li>Timestamp</li>
+            <li>Client IP</li>
+            <li>Request method</li>
+            <li>Request path</li>
+            <li>Status code</li>
+            <li>Response time</li>
+            <li>User agent</li>
+            <li>Error information (if any)</li>
+        </ul>
 
-        <h2>Graceful Shutdown</h2>
-        <p>To shut down the server, simply send a Ctrl+C signal. The server will gracefully shut down, ensuring all ongoing requests are completed.</p>
+        <h2>Development Guide</h2>
+        <div class="feature-list">
+            <div class="feature-card">
+                <h3>Creating New Modules</h3>
+                <p>Learn how to create and integrate new modules into the server:</p>
+                <ul>
+                    <li>Create module directory and files</li>
+                    <li>Define module interfaces</li>
+                    <li>Add configuration support</li>
+                    <li>Integrate with existing code</li>
+                </ul>
+            </div>
+            <div class="feature-card">
+                <h3>Best Practices</h3>
+                <p>Follow these guidelines for module development:</p>
+                <ul>
+                    <li>Error handling</li>
+                    <li>Testing</li>
+                    <li>Documentation</li>
+                    <li>Code style</li>
+                    <li>Performance optimization</li>
+                </ul>
+            </div>
+            <div class="feature-card">
+                <h3>Example Module</h3>
+                <p>Check out the example rate limiter module to see how to:</p>
+                <ul>
+                    <li>Define interfaces</li>
+                    <li>Implement functionality</li>
+                    <li>Handle concurrency</li>
+                    <li>Manage resources</li>
+                </ul>
+            </div>
+        </div>
 
-        <h2>SSL Certificate</h2>
-        <p>For testing HTTPS, you can generate a self-signed certificate using OpenSSL:</p>
-        <pre><code>openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout server.key -out server.crt \
-    -subj "/C=CN/ST=State/L=City/O=Organization/CN=localhost"</code></pre>
+        <h3>Module Development Steps</h3>
+        <ol>
+            <li>
+                <strong>Create Module Structure</strong>
+                <pre><code>mkdir internal/yourmodule
+touch internal/yourmodule/yourmodule.go</code></pre>
+            </li>
+            <li>
+                <strong>Define Module Interface</strong>
+                <pre><code>type YourModule interface {
+    Initialize() error
+    Process() error
+}</code></pre>
+            </li>
+            <li>
+                <strong>Add Configuration</strong>
+                <pre><code># Your Module Configuration
+your-module-enabled = true
+your-module-option1 = value1</code></pre>
+            </li>
+            <li>
+                <strong>Integrate with Server</strong>
+                <pre><code>yourModule := yourmodule.New()
+if err := yourModule.Initialize(); err != nil {
+    log.Fatalf("Failed to initialize: %v", err)
+}</code></pre>
+            </li>
+        </ol>
+
+        <h2>License</h2>
+        <p>This project is licensed under the MIT License - see the LICENSE file for details.</p>
     </div>
 </body>
 </html>
