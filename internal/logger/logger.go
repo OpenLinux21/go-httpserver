@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -12,25 +11,8 @@ import (
 	"github.com/OpenLinux21/go-httpserver/internal/utils"
 )
 
-// LogRequestDetails logs request details to latest.log
-func LogRequestDetails(r *http.Request, filePath string, bytesSent int64, port string) {
-	clientIP := strings.Split(r.RemoteAddr, ":")[0]
-	requestTime := time.Now().Format("2006-01-02 15:04:05")
-	randomString := utils.GenerateRandomString(16)
-	logDetails := fmt.Sprintf("%s | ClientIP: %s | Port: %s | File: %s | Time: %s | BytesSent: %d\n",
-		randomString, clientIP, port, filePath, requestTime, bytesSent)
-
-	logFile, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.Printf("Error opening log file: %v", err)
-		return
-	}
-	defer logFile.Close()
-
-	if _, err := io.WriteString(logFile, logDetails); err != nil {
-		log.Printf("Error writing to log file: %v", err)
-	}
-}
+// LogFile is the opened log file used for request logging. It is opened once at startup.
+var LogFile *os.File
 
 // MultiWriter creates a writer that writes to multiple targets
 type MultiWriter struct {
@@ -57,14 +39,42 @@ func (t *MultiWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// SetupGinLogger sets up GIN's logging output
+// SetupGinLogger opens the log file once and returns an io.Writer suitable for gin's logger.
 func SetupGinLogger() (io.Writer, error) {
 	// Create or open log file
-	logFile, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	lf, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %v", err)
 	}
+	LogFile = lf
 
 	// Create a writer that writes to both console and file
-	return NewMultiWriter(os.Stdout, logFile), nil
+	return NewMultiWriter(os.Stdout, LogFile), nil
+}
+
+// CloseLogFile closes the global log file if opened
+func CloseLogFile() {
+	if LogFile != nil {
+		_ = LogFile.Close()
+		LogFile = nil
+	}
+}
+
+// LogRequestDetails logs request details to latest.log
+// clientIP should be extracted correctly (e.g. using gin.Context.ClientIP()).
+func LogRequestDetails(clientIP string, filePath string, bytesSent int64, port string) {
+	requestTime := time.Now().Format("2006-01-02 15:04:05")
+	randomString := utils.GenerateRandomString(16)
+	logDetails := fmt.Sprintf("%s | ClientIP: %s | Port: %s | File: %s | Time: %s | BytesSent: %d\n",
+		randomString, clientIP, port, filePath, requestTime, bytesSent)
+
+	if LogFile == nil {
+		// Fallback: write directly to stdout if log file not ready
+		log.Printf("%s", strings.TrimSpace(logDetails))
+		return
+	}
+
+	if _, err := io.WriteString(LogFile, logDetails); err != nil {
+		log.Printf("Error writing to log file: %v", err)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,9 @@ import (
 )
 
 func main() {
+	// Move rand.Seed to program start
+	rand.Seed(time.Now().UnixNano())
+
 	// Load configuration
 	if err := config.LoadConfig(); err != nil {
 		log.Fatalf("Error loading config: %v", err)
@@ -48,11 +52,33 @@ func main() {
 	}))
 	router.Use(gin.Recovery())
 
-	// Add our custom middleware
+	// Register custom middleware: security headers and gzip
 	router.Use(func(c *gin.Context) {
-		middleware.GzipMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.HandleRequest(w, r)
-		})).ServeHTTP(c.Writer, c.Request)
+		middleware.AddSecurityHeaders(c.Writer)
+		c.Next()
+	})
+	// If HTTPS is enabled, add HSTS header middleware
+	if config.GlobalConfig.EnableHTTPS {
+		router.Use(func(c *gin.Context) {
+			middleware.SetHSTS(c.Writer)
+			c.Next()
+		})
+	}
+	router.Use(func(c *gin.Context) {
+		// Gzip middleware: only for specific extensions and when client accepts gzip
+		if middleware.ShouldGzip(c.Request.URL.Path) && middleware.ClientAcceptsGzip(c.Request) {
+			middleware.GzipGinMiddleware(c)
+			return
+		}
+		c.Next()
+	})
+
+	// Route: catch-all to our handlers
+	router.NoRoute(func(c *gin.Context) {
+		handlers.HandleGinRequest(c)
+	})
+	router.NoMethod(func(c *gin.Context) {
+		handlers.HandleGinRequest(c)
 	})
 
 	// Create HTTP server
@@ -106,6 +132,9 @@ func main() {
 			log.Fatalf("Error shutting down HTTPS server: %v", err)
 		}
 	}
+
+	// Close global log file
+	logger.CloseLogFile()
 
 	log.Println("Server shutdown complete")
 }
