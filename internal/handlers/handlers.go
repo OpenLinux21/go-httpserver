@@ -133,15 +133,32 @@ func HandleGinRequest(ctx *gin.Context) {
 		path = "/" + path
 	}
 
-	// Construct the full file path
-	fullPath := filepath.Join(config.GlobalConfig.RootDirectory, path)
+	// Ensure the joined path stays under the configured root even when the
+	// request path is absolute (filepath.Join would otherwise discard the
+	// root when joining with an absolute component).
+	relativePath := strings.TrimPrefix(path, "/")
+
+	// Construct the full file path using an absolute root and prevent directory traversal
+	absRoot, err := filepath.Abs(config.GlobalConfig.RootDirectory)
+	if err != nil {
+		HandleError(ctx, err, 500, "Invalid root directory")
+		return
+	}
+
+	fullPath := filepath.Join(absRoot, relativePath)
+
+	rel, err := filepath.Rel(absRoot, fullPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		HandleError(ctx, fmt.Errorf("access outside root: %s", path), 403, "Forbidden path traversal attempt")
+		return
+	}
 
 	// Check if the path exists
 	fileInfo, err := os.Stat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Try to serve 404 page
-			notFoundPath := filepath.Join(config.GlobalConfig.RootDirectory, config.GlobalConfig.NotFoundPage)
+			notFoundPath := filepath.Join(absRoot, config.GlobalConfig.NotFoundPage)
 			if _, err := os.Stat(notFoundPath); err == nil {
 				ctx.File(notFoundPath)
 				return
