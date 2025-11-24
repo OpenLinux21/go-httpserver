@@ -52,6 +52,9 @@ func main() {
 	}))
 	router.Use(gin.Recovery())
 
+	// Rate limiting middleware to slow down abusive clients and escalate to temporary bans
+	router.Use(middleware.RateLimitMiddleware())
+
 	// Register custom middleware: security headers and gzip
 	router.Use(func(c *gin.Context) {
 		middleware.AddSecurityHeaders(c.Writer)
