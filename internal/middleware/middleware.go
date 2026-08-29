@@ -2,96 +2,146 @@ package middleware
 
 import (
 	"compress/gzip"
-	"io"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-type GzipResponseWriter struct {
-	io.Writer
+type gzipResponseWriter struct {
 	gin.ResponseWriter
+	writer *gzip.Writer
 }
 
-func (w *GzipResponseWriter) Write(b []byte) (int, error) {
-	return w.Writer.Write(b)
+func (w *gzipResponseWriter) WriteHeader(code int) {
+	w.Header().Del("Content-Length")
+	if code >= 100 && code < 200 || code == http.StatusNoContent || code == http.StatusNotModified {
+		w.Header().Del("Content-Encoding")
+	}
+	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *GzipResponseWriter) WriteString(s string) (int, error) {
-	return w.Writer.Write([]byte(s))
+func (w *gzipResponseWriter) Write(data []byte) (int, error) {
+	w.Header().Del("Content-Length")
+	return w.writer.Write(data)
 }
 
-func ShouldGzip(path string) bool {
-	// Check if path contains an extension
-	lastDot := strings.LastIndex(path, ".")
-	if lastDot == -1 {
+func (w *gzipResponseWriter) WriteString(data string) (int, error) {
+	w.Header().Del("Content-Length")
+	return w.writer.Write([]byte(data))
+}
+
+func (w *gzipResponseWriter) Flush() {
+	_ = w.writer.Flush()
+	w.ResponseWriter.Flush()
+}
+
+func Gzip() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !shouldCompressPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		appendVary(c.Writer.Header(), "Accept-Encoding")
+		if c.Request.Method == http.MethodHead || !clientAcceptsGzip(c.Request) || c.Request.Header.Get("Range") != "" {
+			c.Next()
+			return
+		}
+
+		c.Header("Content-Encoding", "gzip")
+		writer := gzip.NewWriter(c.Writer)
+		original := c.Writer
+		c.Writer = &gzipResponseWriter{ResponseWriter: original, writer: writer}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				c.Writer = original
+				original.Header().Del("Content-Encoding")
+				panic(recovered)
+			}
+			status := original.Status()
+			if status >= 100 && status < 200 || status == http.StatusNoContent || status == http.StatusNotModified {
+				original.Header().Del("Content-Encoding")
+				c.Writer = original
+				return
+			}
+			_ = writer.Close()
+			c.Writer = original
+		}()
+		c.Next()
+	}
+}
+
+func clientAcceptsGzip(r *http.Request) bool {
+	gzipQuality := -1.0
+	wildcardQuality := -1.0
+	for _, value := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		parts := strings.Split(strings.TrimSpace(value), ";")
+		encoding := strings.ToLower(strings.TrimSpace(parts[0]))
+		if encoding != "gzip" && encoding != "*" {
+			continue
+		}
+		quality := 1.0
+		for _, parameter := range parts[1:] {
+			key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+			if ok && strings.EqualFold(key, "q") {
+				parsed, err := strconv.ParseFloat(value, 64)
+				if err != nil {
+					return false
+				}
+				if parsed < 0 || parsed > 1 {
+					return false
+				}
+				quality = parsed
+			}
+		}
+		if encoding == "gzip" {
+			gzipQuality = quality
+		} else {
+			wildcardQuality = quality
+		}
+	}
+	if gzipQuality >= 0 {
+		return gzipQuality > 0
+	}
+	return wildcardQuality > 0
+}
+
+func shouldCompressPath(name string) bool {
+	extension := strings.ToLower(path.Ext(name))
+	if extension == "" {
+		return true
+	}
+	switch extension {
+	case ".css", ".csv", ".html", ".htm", ".js", ".json", ".map", ".md", ".svg", ".txt", ".xml":
+		return true
+	default:
 		return false
 	}
-
-	ext := strings.ToLower(path[lastDot:])
-	return ext == ".html" || ext == ".css" || ext == ".js" || ext == ".json" || ext == ".xml" || ext == ".txt"
 }
 
-func AddSecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("X-XSS-Protection", "1; mode=block")
-	// HSTS should only be set by caller when HTTPS is enabled. Keep here but comment.
-	// w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
-}
-
-func GzipMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !ShouldGzip(r.URL.Path) {
-			next.ServeHTTP(w, r)
-			return
+func appendVary(header http.Header, value string) {
+	for _, existing := range header.Values("Vary") {
+		for _, item := range strings.Split(existing, ",") {
+			if strings.EqualFold(strings.TrimSpace(item), value) {
+				return
+			}
 		}
+	}
+	header.Add("Vary", value)
+}
 
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-			next.ServeHTTP(w, r)
-			return
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.Writer.Header()
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("X-Frame-Options", "DENY")
+		header.Set("Referrer-Policy", "no-referrer")
+		header.Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'")
+		if c.Request.TLS != nil {
+			header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
-
-		gz := gzip.NewWriter(w)
-		defer gz.Close()
-
-		w.Header().Set("Content-Encoding", "gzip")
-		// Use a http-specific gzip writer wrapper
-		next.ServeHTTP(&HTTPGzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
-	})
-}
-
-// ClientAcceptsGzip checks request headers for gzip support
-func ClientAcceptsGzip(r *http.Request) bool {
-	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
-}
-
-// GzipGinMiddleware writes gzipped response for gin context; it assumes caller checked ShouldGzip and Accept-Encoding
-func GzipGinMiddleware(c *gin.Context) {
-	gz := gzip.NewWriter(c.Writer)
-	defer gz.Close()
-
-	c.Header("Content-Encoding", "gzip")
-	// hijack response writer by replacing c.Writer
-	gw := &GzipResponseWriter{Writer: gz, ResponseWriter: c.Writer}
-	c.Writer = gw
-	c.Next()
-}
-
-// HTTPGzipResponseWriter is used for net/http handlers
-type HTTPGzipResponseWriter struct {
-	io.Writer
-	http.ResponseWriter
-}
-
-func (w *HTTPGzipResponseWriter) Write(b []byte) (int, error) {
-	return w.Writer.Write(b)
-}
-
-// SetHSTS sets the Strict-Transport-Security header for HTTPS responses.
-// Should only be called when the server is serving over HTTPS.
-func SetHSTS(w http.ResponseWriter) {
-	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		c.Next()
+	}
 }

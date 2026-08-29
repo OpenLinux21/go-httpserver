@@ -1,67 +1,60 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# ---------------------------------------
-# Interactive Go cross-build script
-# ---------------------------------------
+set -euo pipefail
 
-# OS options
-OS_LIST=("linux" "windows" "darwin")
-ARCH_MAP_linux=("amd64" "arm64" "arm" "386" "s390x")
-ARCH_MAP_windows=("amd64" "arm64" "386")
-ARCH_MAP_darwin=("amd64" "arm64")
+supported_os=(linux windows darwin)
 
-echo "Select target operating system:"
-select CHOSEN_OS in "${OS_LIST[@]}"; do
-    if [[ -n "$CHOSEN_OS" ]]; then
-        echo "Selected OS: $CHOSEN_OS"
-        break
-    else
-        echo "Invalid selection. Please enter a valid number."
-    fi
-done
+choose() {
+    local prompt=$1
+    shift
+    local options=("$@")
+    local choice
 
-# Determine available architectures
-case "$CHOSEN_OS" in
-    linux)   ARCH_LIST=("${ARCH_MAP_linux[@]}") ;;
-    windows) ARCH_LIST=("${ARCH_MAP_windows[@]}") ;;
-    darwin)  ARCH_LIST=("${ARCH_MAP_darwin[@]}") ;;
+    printf '%s\n' "$prompt" >&2
+    select choice in "${options[@]}"; do
+        if [[ -n "$choice" ]]; then
+            printf '%s' "$choice"
+            return
+        fi
+        printf 'Invalid selection.\n' >&2
+    done
+}
+
+target_os=${1:-}
+target_arch=${2:-}
+
+if [[ -z "$target_os" ]]; then
+    target_os=$(choose "Select target operating system:" "${supported_os[@]}")
+fi
+
+case "$target_os" in
+    linux) supported_arch=(amd64 arm64 arm 386 s390x) ;;
+    windows) supported_arch=(amd64 arm64 386) ;;
+    darwin) supported_arch=(amd64 arm64) ;;
+    *) printf 'Unsupported operating system: %s\n' "$target_os" >&2; exit 1 ;;
 esac
 
-echo
-echo "Select target architecture:"
-select CHOSEN_ARCH in "${ARCH_LIST[@]}"; do
-    if [[ -n "$CHOSEN_ARCH" ]]; then
-        echo "Selected architecture: $CHOSEN_ARCH"
+if [[ -z "$target_arch" ]]; then
+    target_arch=$(choose "Select target architecture:" "${supported_arch[@]}")
+fi
+
+valid_arch=false
+for arch in "${supported_arch[@]}"; do
+    if [[ "$target_arch" == "$arch" ]]; then
+        valid_arch=true
         break
-    else
-        echo "Invalid selection. Please enter a valid number."
     fi
 done
-
-# Set environment variables
-export CGO_ENABLED=0
-export GOOS="$CHOSEN_OS"
-export GOARCH="$CHOSEN_ARCH"
-
-# Output binary name
-OUTPUT="web_server"
-if [[ "$CHOSEN_OS" == "windows" ]]; then
-    OUTPUT="${OUTPUT}.exe"
-fi
-
-echo
-echo "Building for GOOS=$GOOS GOARCH=$GOARCH ..."
-go build -a -ldflags '-extldflags "-static"' -o "$OUTPUT" ./cmd/server
-
-# Result check
-if [[ $? -eq 0 ]]; then
-    echo "-----------------------------------------"
-    echo "Build successful!"
-    echo "Binary created: $OUTPUT"
-    echo "Target: $GOOS / $GOARCH"
-    echo "-----------------------------------------"
-else
-    echo "Build failed!"
+if [[ "$valid_arch" != true ]]; then
+    printf 'Unsupported architecture %s for %s\n' "$target_arch" "$target_os" >&2
     exit 1
 fi
- 
+
+output=web_server
+if [[ "$target_os" == windows ]]; then
+    output+=.exe
+fi
+
+printf 'Building %s/%s -> %s\n' "$target_os" "$target_arch" "$output"
+CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
+    go build -trimpath -ldflags='-s -w' -o "$output" ./cmd/server

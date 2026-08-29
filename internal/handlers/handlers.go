@@ -1,199 +1,250 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
+	"html/template"
+	"io"
+	"io/fs"
+	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
+	pathpkg "path"
+	"sort"
 	"strings"
 
 	"github.com/OpenLinux21/go-httpserver/internal/config"
-	"github.com/OpenLinux21/go-httpserver/internal/logger"
-	"github.com/OpenLinux21/go-httpserver/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-func HandleError(ctx *gin.Context, err error, statusCode int, logMsg string) {
-	ctx.Error(err)
-	ctx.String(statusCode, http.StatusText(statusCode))
+const directoryTemplate = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Index of {{.Path}}</title>
+<style>
+body { max-width: 72rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; color: #222; }
+h1 { font-size: 1.5rem; }
+table { width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; }
+th, td { padding: .45rem .7rem; text-align: left; border-bottom: 1px solid #ddd; }
+th { background: #f4f4f4; }
+a { color: #0645ad; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.size { text-align: right; }
+</style>
+</head>
+<body>
+<h1>Index of {{.Path}}</h1>
+<table>
+<thead><tr><th>Name</th><th>Last modified</th><th class="size">Size</th></tr></thead>
+<tbody>
+{{if .Parent}}<tr><td><a href="../">../</a></td><td>-</td><td class="size">-</td></tr>{{end}}
+{{range .Entries}}<tr><td><a href="{{.URL}}">{{.Name}}</a></td><td>{{.Modified}}</td><td class="size">{{.Size}}</td></tr>{{end}}
+</tbody>
+</table>
+<p>Go HTTP Server</p>
+</body>
+</html>`
+
+var autoIndexTemplate = template.Must(template.New("directory").Parse(directoryTemplate))
+
+const maxErrorPageSize = 1 << 20
+
+type Handler struct {
+	cfg  config.Config
+	root *os.Root
 }
 
-func AutoIndex(ctx *gin.Context, rpath string, directoryPath string) {
-	entries, err := os.ReadDir(directoryPath)
-	if err != nil {
-		HandleError(ctx, err, 500, "Unable to list directory")
-		return
-	}
-
-	ctx.Header("Content-Type", "text/html; charset=utf-8")
-	ctx.Writer.WriteString("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n")
-	ctx.Writer.WriteString(fmt.Sprintf("<html>\n<head>\n<title>Index of %s</title>\n", rpath))
-	ctx.Writer.WriteString(`<style>
-		body { font-family: Arial, sans-serif; }
-		h1 { font-size: 1.5em; margin: 0.5em 0; }
-		table { width: 100%%; border-collapse: collapse; font-family: monospace; }
-		th { text-align: left; padding: 0.5em 1em; background: #e4e4e4; border-bottom: 1px solid #ccc; }
-		td { padding: 0.25em 1em; }
-		tr:hover td { background: #f4f4f4; }
-		a { text-decoration: none; color: #00e; }
-		a:hover { text-decoration: underline; color: #00f; }
-		hr { border: 0; border-top: 1px solid #ccc; margin: 1em 0; }
-		.name-cell { min-width: 35%%; }
-		.date-cell { min-width: 20%%; }
-		.size-cell { min-width: 10%%; }
-		.icon { width: 20px; height: 20px; vertical-align: middle; margin-right: 5px; }
-		.parent-dir { color: #666; }
-		.dir-name { font-weight: bold; }
-		address { font-size: 0.8em; font-style: italic; color: #666; margin-top: 1em; }
-	</style>`)
-	ctx.Writer.WriteString("</head>\n<body>\n")
-	ctx.Writer.WriteString(fmt.Sprintf("<h1>Index of %s</h1>\n", rpath))
-	ctx.Writer.WriteString("<table>\n")
-	ctx.Writer.WriteString("<tr><th class=\"name-cell\">Name</th><th class=\"date-cell\">Last modified</th><th class=\"size-cell\">Size</th></tr>\n")
-	ctx.Writer.WriteString("<tr><th colspan=\"3\"><hr></th></tr>\n")
-
-	if rpath != "/" {
-		parent := ".."
-		ctx.Writer.WriteString(fmt.Sprintf(`<tr>
-			<td class="name-cell"><a href="%s" class="parent-dir">↑ Parent Directory</a></td>
-			<td class="date-cell">-</td>
-			<td class="size-cell">-</td>
-			</tr>`, parent))
-	}
-
-	// Process directories first
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		encodedName := url.PathEscape(name)
-
-		link := rpath
-		if !strings.HasSuffix(link, "/") {
-			link += "/"
-		}
-		link += encodedName + "/"
-
-		info, err := entry.Info()
-		modTime := "-"
-		if err == nil {
-			modTime = info.ModTime().Format("2006-01-02 15:04")
-		}
-
-		ctx.Writer.WriteString(fmt.Sprintf(`<tr>
-			<td class="name-cell"><a href="%s" class="dir-name">📁 %s/</a></td>
-			<td class="date-cell">%s</td>
-			<td class="size-cell">-</td>
-			</tr>`, link, name, modTime))
-	}
-
-	// Process files
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		encodedName := url.PathEscape(name)
-
-		link := rpath
-		if !strings.HasSuffix(link, "/") {
-			link += "/"
-		}
-		link += encodedName
-
-		info, err := entry.Info()
-		modTime, size := "-", "-"
-		if err == nil {
-			modTime = info.ModTime().Format("2006-01-02 15:04")
-			size = fmt.Sprintf("%d", info.Size())
-		}
-
-		ctx.Writer.WriteString(fmt.Sprintf(`<tr>
-			<td class="name-cell"><a href="%s">📄 %s</a></td>
-			<td class="date-cell">%s</td>
-			<td class="size-cell">%s</td>
-			</tr>`, link, name, modTime, size))
-	}
-
-	ctx.Writer.WriteString("</table>\n")
-	ctx.Writer.WriteString("<hr>\n")
-	ctx.Writer.WriteString("<address>Go HTTP Server</address>\n")
-	ctx.Writer.WriteString("</body>\n</html>")
+type directoryEntry struct {
+	Name     string
+	URL      string
+	Modified string
+	Size     string
+	IsDir    bool
 }
 
-// HandleGinRequest is the gin-compatible entry point for serving static files and directory listings
-func HandleGinRequest(ctx *gin.Context) {
-	middleware.AddSecurityHeaders(ctx.Writer)
+type directoryData struct {
+	Path    string
+	Parent  bool
+	Entries []directoryEntry
+}
 
-	// Clean and normalize the request path
-	path := filepath.Clean(ctx.Request.URL.Path)
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-
-	// Ensure the joined path stays under the configured root even when the
-	// request path is absolute (filepath.Join would otherwise discard the
-	// root when joining with an absolute component).
-	relativePath := strings.TrimPrefix(path, "/")
-
-	// Construct the full file path using an absolute root and prevent directory traversal
-	absRoot, err := filepath.Abs(config.GlobalConfig.RootDirectory)
+func New(cfg config.Config) (*Handler, error) {
+	root, err := os.OpenRoot(cfg.RootDirectory)
 	if err != nil {
-		HandleError(ctx, err, 500, "Invalid root directory")
+		return nil, fmt.Errorf("open website root: %w", err)
+	}
+	return &Handler{cfg: cfg, root: root}, nil
+}
+
+func (h *Handler) Close() error {
+	return h.root.Close()
+}
+
+func (h *Handler) Serve(c *gin.Context) {
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		c.Header("Allow", "GET, HEAD")
+		c.AbortWithStatus(http.StatusMethodNotAllowed)
 		return
 	}
 
-	fullPath := filepath.Join(absRoot, relativePath)
+	requestPath := pathpkg.Clean("/" + c.Request.URL.Path)
+	name := strings.TrimPrefix(requestPath, "/")
+	if name == "" {
+		name = "."
+	}
 
-	rel, err := filepath.Rel(absRoot, fullPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		HandleError(ctx, fmt.Errorf("access outside root: %s", path), 403, "Forbidden path traversal attempt")
+	info, err := h.root.Stat(name)
+	if err != nil {
+		h.handleFileError(c, err)
+		return
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		h.serveError(c, http.StatusForbidden, fmt.Errorf("refusing special file %q", name))
+		return
+	}
+	file, err := h.root.Open(name)
+	if err != nil {
+		h.handleFileError(c, err)
+		return
+	}
+	defer file.Close()
+	if info.IsDir() {
+		h.serveDirectory(c, requestPath, name, file)
+		return
+	}
+	h.serveContent(c, file, info)
+}
+
+func (h *Handler) serveDirectory(c *gin.Context, requestPath, name string, directory *os.File) {
+	if !strings.HasSuffix(c.Request.URL.Path, "/") {
+		location := &url.URL{Path: c.Request.URL.Path + "/", RawQuery: c.Request.URL.RawQuery}
+		http.Redirect(c.Writer, c.Request, location.String(), http.StatusMovedPermanently)
 		return
 	}
 
-	// Check if the path exists
-	fileInfo, err := os.Stat(fullPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Try to serve 404 page
-			notFoundPath := filepath.Join(absRoot, config.GlobalConfig.NotFoundPage)
-			if _, err := os.Stat(notFoundPath); err == nil {
-				ctx.File(notFoundPath)
-				return
+	for _, indexName := range h.cfg.IndexFiles {
+		indexPath := pathpkg.Join(name, filepathToSlash(indexName))
+		info, err := h.root.Stat(indexPath)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
 			}
-			HandleError(ctx, err, 404, "File not found")
+			h.handleFileError(c, err)
 			return
 		}
-		HandleError(ctx, err, 500, "Error accessing file")
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		file, err := h.root.Open(indexPath)
+		if err == nil {
+			h.serveContent(c, file, info)
+			file.Close()
+			return
+		}
+		h.handleFileError(c, err)
 		return
 	}
 
-	// Handle directory
-	if fileInfo.IsDir() {
-		// Check for index files
-		for _, indexFile := range config.GlobalConfig.IndexFiles {
-			indexPath := filepath.Join(fullPath, indexFile)
-			if _, err := os.Stat(indexPath); err == nil {
-				ctx.File(indexPath)
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		h.handleFileError(c, err)
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDir() != entries[j].IsDir() {
+			return entries[i].IsDir()
+		}
+		return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+	})
+
+	data := directoryData{Path: requestPath, Parent: requestPath != "/"}
+	for _, entry := range entries {
+		item := directoryEntry{Name: entry.Name(), URL: url.PathEscape(entry.Name()), Size: "-", IsDir: entry.IsDir()}
+		if entry.IsDir() {
+			item.Name += "/"
+			item.URL += "/"
+		}
+		if info, err := entry.Info(); err == nil {
+			item.Modified = info.ModTime().Format("2006-01-02 15:04")
+			if info.Mode().IsRegular() {
+				item.Size = fmt.Sprintf("%d", info.Size())
+			}
+		} else {
+			item.Modified = "-"
+		}
+		data.Entries = append(data.Entries, item)
+	}
+
+	c.Status(http.StatusOK)
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	if c.Request.Method == http.MethodHead {
+		return
+	}
+	if err := autoIndexTemplate.Execute(c.Writer, data); err != nil {
+		log.Printf("render directory listing: %v", err)
+	}
+}
+
+func (h *Handler) serveContent(c *gin.Context, file *os.File, info fs.FileInfo) {
+	http.ServeContent(c.Writer, c.Request, info.Name(), info.ModTime(), file)
+}
+
+func (h *Handler) handleFileError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		h.serveError(c, http.StatusNotFound, err)
+	case errors.Is(err, fs.ErrPermission):
+		h.serveError(c, http.StatusForbidden, err)
+	default:
+		h.serveError(c, http.StatusInternalServerError, err)
+	}
+}
+
+func (h *Handler) serveError(c *gin.Context, status int, cause error) {
+	if status >= 500 {
+		log.Printf("request failed: %v", cause)
+	}
+
+	page := ""
+	if status == http.StatusNotFound {
+		page = h.cfg.NotFoundPage
+	} else if status == http.StatusForbidden {
+		page = h.cfg.ForbiddenPage
+	}
+	if page != "" {
+		page = filepathToSlash(page)
+		info, statErr := h.root.Stat(page)
+		if statErr == nil && info.Mode().IsRegular() && info.Size() <= maxErrorPageSize {
+			file, openErr := h.root.Open(page)
+			if openErr != nil {
+				c.String(status, http.StatusText(status))
 				return
 			}
+			data, readErr := io.ReadAll(io.LimitReader(file, maxErrorPageSize+1))
+			file.Close()
+			if readErr != nil || len(data) > maxErrorPageSize {
+				c.String(status, http.StatusText(status))
+				return
+			}
+			contentType := mime.TypeByExtension(pathpkg.Ext(page))
+			if contentType == "" {
+				contentType = http.DetectContentType(data)
+			}
+			c.Header("Content-Type", contentType)
+			c.Status(status)
+			if c.Request.Method != http.MethodHead {
+				_, _ = c.Writer.Write(data)
+			}
+			return
 		}
-		// If no index file found, show directory listing
-		AutoIndex(ctx, path, fullPath)
-		return
 	}
+	c.String(status, http.StatusText(status))
+}
 
-	// Serve the file
-	// Log the request: use gin client IP extraction
-	clientIP := ctx.ClientIP()
-
-	// Get file size for logging
-	fi, err := os.Stat(fullPath)
-	if err == nil {
-		logger.LogRequestDetails(clientIP, fullPath, fi.Size(), config.GlobalConfig.Port)
-	}
-
-	ctx.File(fullPath)
+func filepathToSlash(name string) string {
+	return strings.ReplaceAll(name, "\\", "/")
 }

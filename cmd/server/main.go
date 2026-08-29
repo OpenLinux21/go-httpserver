@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"net"
 	"net/http"
-	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,126 +19,142 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 30 * time.Second
+	writeTimeout      = 5 * time.Minute
+	idleTimeout       = 90 * time.Second
+	shutdownTimeout   = 10 * time.Second
+	maxHeaderBytes    = 1 << 20
+)
+
 func main() {
-	// Move rand.Seed to program start
-	rand.Seed(time.Now().UnixNano())
-
-	// Load configuration
-	if err := config.LoadConfig(); err != nil {
-		log.Fatalf("Error loading config: %v", err)
+	if err := run(); err != nil {
+		log.Fatal(err)
 	}
+}
 
-	// Setup logger
-	logWriter, err := logger.SetupGinLogger()
+func run() error {
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Error setting up logger: %v", err)
+		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	logWriter, logCloser, err := logger.SetupGinLogger()
+	if err != nil {
+		return fmt.Errorf("set up logger: %w", err)
+	}
+	defer logCloser.Close()
 	gin.DefaultWriter = logWriter
 
-	// Create Gin router
+	fileHandler, err := handlers.New(cfg)
+	if err != nil {
+		return err
+	}
+	defer fileHandler.Close()
+
 	router := gin.New()
-
-	// Use Gin's logger and recovery middleware
-	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		return fmt.Sprintf("[%s] | %s | %d | %s | %s | %s | %s | %s\n",
-			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
-			param.ClientIP,
-			param.StatusCode,
-			param.Method,
-			param.Path,
-			param.Request.UserAgent(),
-			param.Latency,
-			param.ErrorMessage,
-		)
-	}))
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return fmt.Errorf("configure trusted proxies: %w", err)
+	}
+	router.Use(gin.LoggerWithFormatter(accessLogFormatter))
 	router.Use(gin.Recovery())
+	router.Use(middleware.SecurityHeaders())
+	router.Use(middleware.NewRateLimiter().Middleware())
+	router.Use(middleware.Gzip())
+	router.NoRoute(fileHandler.Serve)
+	router.NoMethod(fileHandler.Serve)
 
-	// Rate limiting middleware to slow down abusive clients and escalate to temporary bans
-	router.Use(middleware.RateLimitMiddleware())
-
-	// Register custom middleware: security headers and gzip
-	router.Use(func(c *gin.Context) {
-		middleware.AddSecurityHeaders(c.Writer)
-		c.Next()
-	})
-	// If HTTPS is enabled, add HSTS header middleware
-	if config.GlobalConfig.EnableHTTPS {
-		router.Use(func(c *gin.Context) {
-			middleware.SetHSTS(c.Writer)
-			c.Next()
-		})
-	}
-	router.Use(func(c *gin.Context) {
-		// Gzip middleware: only for specific extensions and when client accepts gzip
-		if middleware.ShouldGzip(c.Request.URL.Path) && middleware.ClientAcceptsGzip(c.Request) {
-			middleware.GzipGinMiddleware(c)
-			return
-		}
-		c.Next()
-	})
-
-	// Route: catch-all to our handlers
-	router.NoRoute(func(c *gin.Context) {
-		handlers.HandleGinRequest(c)
-	})
-	router.NoMethod(func(c *gin.Context) {
-		handlers.HandleGinRequest(c)
-	})
-
-	// Create HTTP server
-	server := &http.Server{
-		Addr:    config.GlobalConfig.IPAddress + ":" + config.GlobalConfig.Port,
-		Handler: router,
+	servers := []*http.Server{newServer(net.JoinHostPort(cfg.IPAddress, cfg.Port), router)}
+	if cfg.EnableHTTPS {
+		servers = append(servers, newServer(net.JoinHostPort(cfg.IPAddress, cfg.HTTPSPort), router))
 	}
 
-	// Create HTTPS server if enabled
-	var httpsServer *http.Server
-	if config.GlobalConfig.EnableHTTPS {
-		httpsServer = &http.Server{
-			Addr:    config.GlobalConfig.IPAddress + ":" + config.GlobalConfig.HTTPSPort,
-			Handler: router,
-		}
-	}
-
-	// Start HTTP server
-	go func() {
-		log.Printf("Starting HTTP server on %s\n", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Error starting HTTP server: %v", err)
-		}
-	}()
-
-	// Start HTTPS server if enabled
-	if httpsServer != nil {
+	serveErrors := make(chan error, len(servers))
+	for i, server := range servers {
+		server, tlsEnabled := server, i > 0
 		go func() {
-			log.Printf("Starting HTTPS server on %s\n", httpsServer.Addr)
-			if err := httpsServer.ListenAndServeTLS(config.GlobalConfig.CertFile, config.GlobalConfig.KeyFile); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("Error starting HTTPS server: %v", err)
+			protocol := "HTTP"
+			var serveErr error
+			if tlsEnabled {
+				protocol = "HTTPS"
+				log.Printf("Starting HTTPS server on %s", server.Addr)
+				serveErr = server.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+			} else {
+				log.Printf("Starting HTTP server on %s", server.Addr)
+				serveErr = server.ListenAndServe()
+			}
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				serveErrors <- fmt.Errorf("%s server: %w", protocol, serveErr)
 			}
 		}()
 	}
 
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	signalContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	var runErr error
+	select {
+	case <-signalContext.Done():
+		log.Println("Shutdown signal received")
+	case runErr = <-serveErrors:
+		log.Printf("Server stopped unexpectedly: %v", runErr)
+	}
 
-	// Create shutdown context
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-
-	// Shutdown servers
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Error shutting down HTTP server: %v", err)
+	if err := shutdownServers(shutdownContext, servers); err != nil && runErr == nil {
+		runErr = err
 	}
-	if httpsServer != nil {
-		if err := httpsServer.Shutdown(ctx); err != nil {
-			log.Fatalf("Error shutting down HTTPS server: %v", err)
-		}
+	if runErr == nil {
+		log.Println("Server shutdown complete")
 	}
+	return runErr
+}
 
-	// Close global log file
-	logger.CloseLogFile()
+func newServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+}
 
-	log.Println("Server shutdown complete")
+func shutdownServers(ctx context.Context, servers []*http.Server) error {
+	errorsChannel := make(chan error, len(servers))
+	var waitGroup sync.WaitGroup
+	for _, server := range servers {
+		waitGroup.Add(1)
+		go func(server *http.Server) {
+			defer waitGroup.Done()
+			if err := server.Shutdown(ctx); err != nil {
+				errorsChannel <- fmt.Errorf("shut down %s: %w", server.Addr, err)
+				_ = server.Close()
+			}
+		}(server)
+	}
+	waitGroup.Wait()
+	close(errorsChannel)
+
+	var result error
+	for err := range errorsChannel {
+		result = errors.Join(result, err)
+	}
+	return result
+}
+
+func accessLogFormatter(param gin.LogFormatterParams) string {
+	return fmt.Sprintf("[%s] | %s | %d | %s | %q | %q | %s | %q\n",
+		param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+		param.ClientIP,
+		param.StatusCode,
+		param.Method,
+		param.Path,
+		param.Request.UserAgent(),
+		param.Latency,
+		param.ErrorMessage,
+	)
 }
