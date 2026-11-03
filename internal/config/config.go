@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,7 +27,13 @@ trusted-proxies =
 enable-https = false
 cert-file = server.crt
 key-file = server.key
-https-port = 8443`
+https-port = 8443
+
+# Logging Configuration
+log-buffer-size = 1MiB
+log-flush-threshold = 75
+log-flush-interval = 5
+log-max-entries = 12500`
 
 type Config struct {
 	IPAddress      string
@@ -40,6 +47,11 @@ type Config struct {
 	CertFile       string
 	KeyFile        string
 	HTTPSPort      string
+
+	LogBufferSize     int // in-memory log buffer capacity in bytes
+	LogFlushThreshold int // buffer fill percentage that triggers a flush
+	LogFlushInterval  int // seconds between periodic flushes; 0 disables
+	LogMaxEntries     int // entries kept in the log file before compaction
 }
 
 func defaults() Config {
@@ -51,6 +63,11 @@ func defaults() Config {
 		NotFoundPage:  "404.html",
 		ForbiddenPage: "403.html",
 		HTTPSPort:     "8443",
+
+		LogBufferSize:     1 << 20,
+		LogFlushThreshold: 75,
+		LogFlushInterval:  5,
+		LogMaxEntries:     12500,
 	}
 }
 
@@ -135,6 +152,30 @@ func parse(r io.Reader) (Config, error) {
 			cfg.KeyFile = value
 		case "https-port":
 			cfg.HTTPSPort = value
+		case "log-buffer-size":
+			size, err := parseByteSize(value)
+			if err != nil {
+				return Config{}, fmt.Errorf("config line %d: invalid log-buffer-size %q: %w", lineNumber, value, err)
+			}
+			cfg.LogBufferSize = int(size)
+		case "log-flush-threshold":
+			percent, err := strconv.Atoi(value)
+			if err != nil || percent < 0 {
+				return Config{}, fmt.Errorf("config line %d: invalid log-flush-threshold %q", lineNumber, value)
+			}
+			cfg.LogFlushThreshold = percent
+		case "log-flush-interval":
+			seconds, err := strconv.Atoi(value)
+			if err != nil || seconds < 0 {
+				return Config{}, fmt.Errorf("config line %d: invalid log-flush-interval %q", lineNumber, value)
+			}
+			cfg.LogFlushInterval = seconds
+		case "log-max-entries":
+			count, err := strconv.Atoi(value)
+			if err != nil || count < 0 {
+				return Config{}, fmt.Errorf("config line %d: invalid log-max-entries %q", lineNumber, value)
+			}
+			cfg.LogMaxEntries = count
 		default:
 			return Config{}, fmt.Errorf("config line %d: unknown option %q", lineNumber, key)
 		}
@@ -158,6 +199,52 @@ func splitList(value string) []string {
 	}
 	return result
 }
+
+var byteSizeSuffixes = map[string]int64{
+	"":    1,
+	"b":   1,
+	"kib": 1 << 10,
+	"mib": 1 << 20,
+	"gib": 1 << 30,
+}
+
+// parseByteSize accepts plain byte counts ("1048576") or suffixed values
+// ("256KiB", "1 MiB"). Suffixes are case-insensitive.
+func parseByteSize(value string) (int64, error) {
+	text := strings.ToLower(strings.TrimSpace(value))
+	digitsEnd := 0
+	for digitsEnd < len(text) && text[digitsEnd] >= '0' && text[digitsEnd] <= '9' {
+		digitsEnd++
+	}
+	digits, suffix := text[:digitsEnd], strings.TrimSpace(text[digitsEnd:])
+	if digits == "" {
+		return 0, fmt.Errorf("expected a positive size")
+	}
+	multiplier, ok := byteSizeSuffixes[suffix]
+	if !ok {
+		return 0, fmt.Errorf("unknown suffix %q (use B, KiB, MiB, or GiB)", suffix)
+	}
+	size, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || size <= 0 {
+		return 0, fmt.Errorf("expected a positive size")
+	}
+	if size > math.MaxInt/multiplier {
+		return 0, fmt.Errorf("size exceeds supported range")
+	}
+	return size * multiplier, nil
+}
+
+// Logging configuration bounds. The in-memory buffer and entry cap keep both
+// memory usage and the log file size bounded regardless of traffic.
+const (
+	minLogBufferSize     = 256 << 10 // 256KiB
+	maxLogBufferSize     = 64 << 20  // 64MiB
+	minLogFlushThreshold = 50
+	maxLogFlushThreshold = 95
+	maxLogFlushInterval  = 3600 // seconds; 0 disables the periodic flush
+	minLogMaxEntries     = 250
+	maxLogMaxEntries     = 10_000_000
+)
 
 func (cfg Config) Validate() error {
 	if cfg.IPAddress == "" {
@@ -199,6 +286,17 @@ func (cfg Config) Validate() error {
 				return fmt.Errorf("invalid trusted proxy %q", proxy)
 			}
 		}
+	}
+
+	switch {
+	case cfg.LogBufferSize < minLogBufferSize || cfg.LogBufferSize > maxLogBufferSize:
+		return fmt.Errorf("log-buffer-size must be between 256KiB and 64MiB")
+	case cfg.LogFlushThreshold < minLogFlushThreshold || cfg.LogFlushThreshold > maxLogFlushThreshold:
+		return fmt.Errorf("log-flush-threshold must be between %d and %d percent", minLogFlushThreshold, maxLogFlushThreshold)
+	case cfg.LogFlushInterval < 0 || cfg.LogFlushInterval > maxLogFlushInterval:
+		return fmt.Errorf("log-flush-interval must be between 0 (disabled) and %d seconds", maxLogFlushInterval)
+	case cfg.LogMaxEntries < minLogMaxEntries || cfg.LogMaxEntries > maxLogMaxEntries:
+		return fmt.Errorf("log-max-entries must be between %d and %d", minLogMaxEntries, maxLogMaxEntries)
 	}
 	return nil
 }
