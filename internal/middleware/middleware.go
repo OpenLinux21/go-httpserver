@@ -2,13 +2,21 @@ package middleware
 
 import (
 	"compress/gzip"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+// gzip writers carry sizable internal buffers; pool them per request
+// instead of allocating a fresh writer for every compressible response.
+var gzipWriterPool = sync.Pool{
+	New: func() any { return gzip.NewWriter(io.Discard) },
+}
 
 type gzipResponseWriter struct {
 	gin.ResponseWriter
@@ -51,23 +59,33 @@ func Gzip() gin.HandlerFunc {
 		}
 
 		c.Header("Content-Encoding", "gzip")
-		writer := gzip.NewWriter(c.Writer)
+		writer := gzipWriterPool.Get().(*gzip.Writer)
+		writer.Reset(c.Writer)
+		release := func() {
+			// Reset discards any state (including a partially written gzip
+			// stream) so the pooled writer is clean for its next borrower.
+			writer.Reset(io.Discard)
+			gzipWriterPool.Put(writer)
+		}
 		original := c.Writer
 		c.Writer = &gzipResponseWriter{ResponseWriter: original, writer: writer}
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				c.Writer = original
 				original.Header().Del("Content-Encoding")
+				release()
 				panic(recovered)
 			}
 			status := original.Status()
 			if status >= 100 && status < 200 || status == http.StatusNoContent || status == http.StatusNotModified {
 				original.Header().Del("Content-Encoding")
 				c.Writer = original
+				release()
 				return
 			}
 			_ = writer.Close()
 			c.Writer = original
+			release()
 		}()
 		c.Next()
 	}

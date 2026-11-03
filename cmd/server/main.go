@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -30,7 +32,11 @@ const (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		// run() has already flushed and closed the log file via its defers,
+		// so report the error directly instead of log.Fatal, which would
+		// skip defers and os.Exit before pending log data is written back.
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
@@ -40,12 +46,23 @@ func run() error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	logWriter, logCloser, err := logger.SetupGinLogger()
+	logLogger, err := logger.New(logger.Config{
+		BufferSize:     cfg.LogBufferSize,
+		FlushThreshold: cfg.LogFlushThreshold,
+		FlushInterval:  time.Duration(cfg.LogFlushInterval) * time.Second,
+		MaxEntries:     cfg.LogMaxEntries,
+		Stdout:         os.Stdout,
+	})
 	if err != nil {
 		return fmt.Errorf("set up logger: %w", err)
 	}
-	defer logCloser.Close()
-	gin.DefaultWriter = logWriter
+	defer logLogger.Close()
+	// Route every log stream (gin access log, panic reports from Recovery,
+	// and the standard library logger) through the same buffered writer so
+	// they all share one destination and one entry cap.
+	gin.DefaultWriter = logLogger
+	gin.DefaultErrorWriter = logLogger
+	log.SetOutput(logLogger)
 
 	fileHandler, err := handlers.New(cfg)
 	if err != nil {
@@ -63,7 +80,6 @@ func run() error {
 	router.Use(middleware.NewRateLimiter().Middleware())
 	router.Use(middleware.Gzip())
 	router.NoRoute(fileHandler.Serve)
-	router.NoMethod(fileHandler.Serve)
 
 	servers := []*http.Server{newServer(net.JoinHostPort(cfg.IPAddress, cfg.Port), router)}
 	if cfg.EnableHTTPS {
@@ -115,6 +131,7 @@ func newServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              address,
 		Handler:           handler,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

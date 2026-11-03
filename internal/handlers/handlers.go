@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -63,7 +64,6 @@ type directoryEntry struct {
 	URL      string
 	Modified string
 	Size     string
-	IsDir    bool
 }
 
 type directoryData struct {
@@ -85,6 +85,11 @@ func (h *Handler) Close() error {
 }
 
 func (h *Handler) Serve(c *gin.Context) {
+	// When HTTPS is enabled, the plaintext listener exists only to redirect.
+	if h.cfg.EnableHTTPS && c.Request.TLS == nil {
+		h.redirectToHTTPS(c)
+		return
+	}
 	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 		c.Header("Allow", "GET, HEAD")
 		c.AbortWithStatus(http.StatusMethodNotAllowed)
@@ -163,7 +168,7 @@ func (h *Handler) serveDirectory(c *gin.Context, requestPath, name string, direc
 
 	data := directoryData{Path: requestPath, Parent: requestPath != "/"}
 	for _, entry := range entries {
-		item := directoryEntry{Name: entry.Name(), URL: url.PathEscape(entry.Name()), Size: "-", IsDir: entry.IsDir()}
+		item := directoryEntry{Name: entry.Name(), URL: url.PathEscape(entry.Name()), Size: "-"}
 		if entry.IsDir() {
 			item.Name += "/"
 			item.URL += "/"
@@ -191,6 +196,22 @@ func (h *Handler) serveDirectory(c *gin.Context, requestPath, name string, direc
 
 func (h *Handler) serveContent(c *gin.Context, file *os.File, info fs.FileInfo) {
 	http.ServeContent(c.Writer, c.Request, info.Name(), info.ModTime(), file)
+}
+
+// redirectToHTTPS answers plaintext requests with a permanent redirect to
+// the same resource on the HTTPS port. It runs inside the normal middleware
+// chain, so rate limiting and security headers still apply.
+func (h *Handler) redirectToHTTPS(c *gin.Context) {
+	host := c.Request.Host
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		host = net.JoinHostPort(hostname, h.cfg.HTTPSPort)
+	} else {
+		host = net.JoinHostPort(host, h.cfg.HTTPSPort)
+	}
+	target := *c.Request.URL
+	target.Scheme = "https"
+	target.Host = host
+	http.Redirect(c.Writer, c.Request, target.String(), http.StatusPermanentRedirect)
 }
 
 func (h *Handler) handleFileError(c *gin.Context, err error) {
