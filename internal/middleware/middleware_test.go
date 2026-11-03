@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -100,6 +101,39 @@ func TestGzipRestoresWriterAfterPanic(t *testing.T) {
 	if response.Header().Get("Content-Encoding") != "" {
 		t.Fatalf("Content-Encoding = %q", response.Header().Get("Content-Encoding"))
 	}
+}
+
+func TestGzipPoolReuseAcrossRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(Gzip())
+	router.GET("/file.txt", func(c *gin.Context) { c.String(http.StatusOK, "compress me %s", strings.Repeat("x", 512)) })
+
+	var group sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			request := httptest.NewRequest(http.MethodGet, "/file.txt", nil)
+			request.Header.Set("Accept-Encoding", "gzip")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			reader, err := gzip.NewReader(response.Body)
+			if err != nil {
+				t.Errorf("gzip.NewReader: %v", err)
+				return
+			}
+			body, err := io.ReadAll(reader)
+			if err != nil {
+				t.Errorf("decompress pooled response: %v", err)
+				return
+			}
+			if !strings.HasPrefix(string(body), "compress me ") || len(body) != len("compress me ")+512 {
+				t.Errorf("unexpected body length %d", len(body))
+			}
+		}()
+	}
+	group.Wait()
 }
 
 func TestRateLimiterBansAndExpiresClients(t *testing.T) {
