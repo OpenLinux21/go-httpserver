@@ -64,7 +64,6 @@ type directoryEntry struct {
 	URL      string
 	Modified string
 	Size     string
-	IsDir    bool
 }
 
 type directoryData struct {
@@ -169,7 +168,7 @@ func (h *Handler) serveDirectory(c *gin.Context, requestPath, name string, direc
 
 	data := directoryData{Path: requestPath, Parent: requestPath != "/"}
 	for _, entry := range entries {
-		item := directoryEntry{Name: entry.Name(), URL: url.PathEscape(entry.Name()), Size: "-", IsDir: entry.IsDir()}
+		item := directoryEntry{Name: entry.Name(), URL: url.PathEscape(entry.Name()), Size: "-"}
 		if entry.IsDir() {
 			item.Name += "/"
 			item.URL += "/"

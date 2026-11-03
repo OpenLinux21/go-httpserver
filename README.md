@@ -43,6 +43,12 @@ enable-https = false
 cert-file = server.crt
 key-file = server.key
 https-port = 8443
+
+# Logging Configuration
+log-buffer-size = 1MiB
+log-flush-threshold = 75
+log-flush-interval = 5
+log-max-entries = 12500
 ```
 
 List values are separated by semicolons. Configuration is validated at
@@ -57,7 +63,31 @@ trusted-proxies = 127.0.0.1;10.0.0.0/8
 ```
 
 When HTTPS is enabled, both certificate files must already exist and the HTTP
-and HTTPS ports must differ.
+and HTTPS ports must differ. The plaintext listener then answers every
+request with a permanent redirect (`308`) to the same URL on the HTTPS port.
+
+## Logging
+
+All logs (access log, panic reports, rate-limit notices, startup messages)
+share one buffered writer that mirrors every entry to stdout immediately and
+batches file writes:
+
+- `log-buffer-size` (256KiB..64MiB, default `1MiB`): in-memory buffer
+  capacity. Accepts plain byte counts or `KiB`/`MiB`/`GiB` suffixes.
+- `log-flush-threshold` (50..95, default `75`): buffer fill percentage that
+  triggers a write-back to `latest.log`.
+- `log-flush-interval` (0..3600 seconds, default `5`; `0` disables): pending
+  entries are written back at least this often so quiet servers still flush.
+- `log-max-entries` (250..10000000, default `12500`): entries kept in
+  `latest.log`. Once the cap plus a 10% margin is reached, the file is
+  rewritten atomically, dropping the oldest entries, so its size stays
+  bounded no matter how much traffic arrives.
+
+On shutdown (including `SIGINT`/`SIGTERM`) everything still buffered is
+flushed and synced. Entries still in memory are lost only on an unclean kill
+(`SIGKILL`, OOM), which can discard up to the most recent
+`100 - log-flush-threshold` percent of the buffer. A partially written line
+left by such a kill is repaired on the next start.
 
 ## Build
 
@@ -85,7 +115,8 @@ go vet ./...
 ```
 
 Tests cover root confinement, escaped listings, HTTP method/error behavior,
-compression negotiation, and rate limiting.
+HTTPS redirects, compression negotiation, rate limiting, and the buffered
+logger (threshold/interval/exit flushes, entry cap, restart recovery).
 
 ## Project Layout
 
@@ -93,7 +124,7 @@ compression negotiation, and rate limiting.
 cmd/server/          startup and server lifecycle
 internal/config/     configuration parsing and validation
 internal/handlers/   root-confined file serving and directory listings
-internal/logger/     access-log setup
+internal/logger/     buffered log writer with capped history file
 internal/middleware/ security headers, compression, and rate limiting
 website/             default document root
 ```

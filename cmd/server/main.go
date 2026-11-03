@@ -80,7 +80,6 @@ func run() error {
 	router.Use(middleware.NewRateLimiter().Middleware())
 	router.Use(middleware.Gzip())
 	router.NoRoute(fileHandler.Serve)
-	router.NoMethod(fileHandler.Serve)
 
 	servers := []*http.Server{newServer(net.JoinHostPort(cfg.IPAddress, cfg.Port), router)}
 	if cfg.EnableHTTPS {
